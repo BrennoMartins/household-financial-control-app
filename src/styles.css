@@ -1,0 +1,234 @@
+:root {
+  font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
+  color: #14213d;
+  background:
+    radial-gradient(circle at top left, rgba(255, 209, 102, 0.45), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(46, 196, 182, 0.25), transparent 30%),
+    linear-gradient(135deg, #fffaf0 0%, #f4f7f1 52%, #edf4ff 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+  padding: 32px;
+}
+
+.hero-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  gap: 28px;
+  align-items: center;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.hero-copy,
+.dashboard-card {
+  backdrop-filter: blur(18px);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(20, 33, 61, 0.08);
+  border-radius: 32px;
+  box-shadow: 0 20px 60px rgba(20, 33, 61, 0.12);
+}
+
+.hero-copy {
+  padding: 56px;
+}
+
+.eyebrow,
+.section-label {
+  display: inline-flex;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(20, 33, 61, 0.08);
+  color: #386641;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hero-copy h1 {
+  margin: 18px 0 16px;
+  font-size: clamp(3rem, 7vw, 5.4rem);
+  line-height: 0.94;
+  letter-spacing: -0.05em;
+}
+
+.lead {
+  max-width: 620px;
+  margin: 0;
+  color: rgba(20, 33, 61, 0.8);
+  font-size: 1.08rem;
+  line-height: 1.7;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 32px 0 36px;
+}
+
+.primary-btn,
+.ghost-btn {
+  border-radius: 18px;
+  padding: 14px 20px;
+  border: none;
+  transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
+}
+
+.primary-btn {
+  background: #14213d;
+  color: #fffaf0;
+  box-shadow: 0 12px 30px rgba(20, 33, 61, 0.22);
+}
+
+.ghost-btn {
+  background: rgba(20, 33, 61, 0.06);
+  color: #14213d;
+}
+
+.primary-btn:hover,
+.ghost-btn:hover {
+  transform: translateY(-2px);
+}
+
+.highlights-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.metric-card {
+  padding: 18px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(20, 33, 61, 0.08);
+}
+
+.metric-card strong,
+.budget-ring strong,
+.category-row strong {
+  display: block;
+  font-size: 1.45rem;
+}
+
+.metric-card span,
+.budget-ring span,
+.category-row span,
+.category-row small {
+  color: rgba(20, 33, 61, 0.72);
+}
+
+.dashboard-card {
+  padding: 28px;
+}
+
+.dashboard-card__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dashboard-card h2 {
+  margin: 12px 0 0;
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: #386641;
+  color: #f7ffe8;
+  font-size: 0.88rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.budget-ring {
+  display: grid;
+  place-items: center;
+  width: min(100%, 270px);
+  aspect-ratio: 1;
+  margin: 28px auto;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, rgba(255, 250, 240, 0.96) 0 54%, transparent 55%),
+    conic-gradient(#386641 0 62%, #ffd166 62% 84%, rgba(20, 33, 61, 0.12) 84% 100%);
+}
+
+.budget-ring > div {
+  display: grid;
+  place-items: center;
+  width: 58%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  text-align: center;
+  background: rgba(255, 250, 240, 0.92);
+}
+
+.category-list {
+  display: grid;
+  gap: 14px;
+}
+
+.category-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 20px;
+  background: rgba(20, 33, 61, 0.04);
+}
+
+.category-row small {
+  display: block;
+  margin-top: 4px;
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    padding: 18px;
+  }
+
+  .hero-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-copy {
+    padding: 32px;
+  }
+
+  .highlights-grid {
+    grid-template-columns: 1fr;
+  }
+}
