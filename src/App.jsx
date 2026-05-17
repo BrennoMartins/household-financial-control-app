@@ -242,6 +242,7 @@ function PaymentForm() {
           'card-id': Number(cardId),
           'is-installments': isInstallments,
           'number-installments': normalizedInstallments,
+          'quantity-installments': normalizedInstallments,
           'category-id': Number(categoryId),
           'is-fixed-expense': isFixedExpense,
           amount: Number(amount),
