@@ -112,7 +112,7 @@ function PaymentForm() {
   const [numberInstallments, setNumberInstallments] = useState('1');
   const [categoryId, setCategoryId] = useState('');
   const [isFixedExpense, setIsFixedExpense] = useState(false);
-  const [amount, setAmount] = useState('100.00');
+  const [amount, setAmount] = useState('');
   const [ownerId, setOwnerId] = useState('');
   const [cards, setCards] = useState([]);
   const [paymentCategories, setPaymentCategories] = useState([]);
@@ -122,6 +122,27 @@ function PaymentForm() {
   const [paymentFeedback, setPaymentFeedback] = useState({ type: '', message: '' });
   const [monthlyPayments, setMonthlyPayments] = useState([]);
   const [isLoadingMonthlyPayments, setIsLoadingMonthlyPayments] = useState(true);
+
+  const parseCurrencyInput = (value) => {
+    const digitsOnly = String(value).replace(/\D/g, '');
+
+    if (!digitsOnly) {
+      return 0;
+    }
+
+    return Number(digitsOnly) / 100;
+  };
+
+  const handleAmountChange = (nextValue) => {
+    const normalizedAmount = parseCurrencyInput(nextValue);
+
+    if (!normalizedAmount) {
+      setAmount('');
+      return;
+    }
+
+    setAmount(formatCurrency(normalizedAmount));
+  };
 
   const updateInstallments = (nextValue) => {
     const parsedValue = Number.parseInt(String(nextValue), 10);
@@ -214,11 +235,20 @@ function PaymentForm() {
 
   const handlePaymentSubmit = async (event) => {
     event.preventDefault();
+    const normalizedAmount = parseCurrencyInput(amount);
 
     if (!cardId || !categoryId || !ownerId) {
       setPaymentFeedback({
         type: 'error',
         message: 'Selecione cartao, categoria e responsavel antes de salvar.',
+      });
+      return;
+    }
+
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
+      setPaymentFeedback({
+        type: 'error',
+        message: 'Informe um valor valido maior que zero.',
       });
       return;
     }
@@ -245,7 +275,7 @@ function PaymentForm() {
           'quantity-installments': normalizedInstallments,
           'category-id': Number(categoryId),
           'is-fixed-expense': isFixedExpense,
-          amount: Number(amount),
+          amount: normalizedAmount,
           'owner-id': Number(ownerId),
         }),
       });
@@ -258,7 +288,7 @@ function PaymentForm() {
       await loadMonthlyPayments();
       setIsInstallments(false);
       setNumberInstallments('1');
-      setAmount('100.00');
+      setAmount('');
     } catch (error) {
       setPaymentFeedback({
         type: 'error',
@@ -334,7 +364,13 @@ function PaymentForm() {
             </label>
             <label className="field">
               <span>Valor</span>
-              <input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
+              <input
+                type="text"
+                inputMode="decimal"
+                placeholder="R$ 0,00"
+                value={amount}
+                onChange={(event) => handleAmountChange(event.target.value)}
+              />
             </label>
             <label className="field">
               <span>Numero de parcelas</span>
@@ -426,37 +462,29 @@ function PaymentForm() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Referencia</th>
                 <th>Categoria</th>
                 <th>Parcelas</th>
-                <th>Fixa</th>
                 <th>Valor</th>
               </tr>
             </thead>
             <tbody>
               {isLoadingMonthlyPayments ? (
                 <tr>
-                  <td colSpan="5">Carregando pagamentos...</td>
+                  <td colSpan="3">Carregando pagamentos...</td>
                 </tr>
               ) : null}
 
               {!isLoadingMonthlyPayments && monthlyPayments.length === 0 ? (
                 <tr>
-                  <td colSpan="5">Nenhum pagamento encontrado para o proximo mes.</td>
+                  <td colSpan="3">Nenhum pagamento encontrado para o proximo mes.</td>
                 </tr>
               ) : null}
 
               {!isLoadingMonthlyPayments
                 ? monthlyPayments.map((payment, index) => (
-                    <tr key={`${payment['reference-date']}-${payment['category-id']}-${index}`}>
-                      <td>{payment['reference-date']}</td>
-                      <td>{payment['category-id']}</td>
-                      <td>
-                        {payment['is-installments']
-                          ? `${payment['number-installments']}x`
-                          : '1x'}
-                      </td>
-                      <td>{payment['is-fixed-expense'] ? 'Sim' : 'Nao'}</td>
+                    <tr key={`${payment.category_name}-${payment.quantity_installments}-${payment.number_installments}-${index}`}>
+                      <td>{payment.category_name}</td>
+                      <td>{`${payment.quantity_installments}/${payment.number_installments}`}</td>
                       <td>{formatCurrency(payment.amount)}</td>
                     </tr>
                   ))
