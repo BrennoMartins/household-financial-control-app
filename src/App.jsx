@@ -98,6 +98,12 @@ function PaymentForm() {
     };
   };
 
+  const getNextReferenceMonthValue = () => {
+    const { year, month } = getNextReferencePeriod();
+
+    return `${year}-${String(month).padStart(2, '0')}`;
+  };
+
   const formatCurrency = (value) =>
     new Intl.NumberFormat('pt-BR', {
       style: 'currency',
@@ -122,6 +128,9 @@ function PaymentForm() {
   const [paymentFeedback, setPaymentFeedback] = useState({ type: '', message: '' });
   const [monthlyPayments, setMonthlyPayments] = useState([]);
   const [isLoadingMonthlyPayments, setIsLoadingMonthlyPayments] = useState(true);
+  const [monthlyPaymentsReferenceMonth, setMonthlyPaymentsReferenceMonth] = useState(
+    getNextReferenceMonthValue(),
+  );
 
   const parseCurrencyInput = (value) => {
     const digitsOnly = String(value).replace(/\D/g, '');
@@ -201,8 +210,18 @@ function PaymentForm() {
     }
   };
 
-  const loadMonthlyPayments = async () => {
-    const { year, month } = getNextReferencePeriod();
+  const loadMonthlyPayments = async (referenceMonth = monthlyPaymentsReferenceMonth) => {
+    const [year, month] = String(referenceMonth).split('-');
+
+    if (!year || !month) {
+      setPaymentFeedback({
+        type: 'error',
+        message: 'Selecione um mes/ano valido para listar os pagamentos.',
+      });
+      setMonthlyPayments([]);
+      setIsLoadingMonthlyPayments(false);
+      return;
+    }
 
     setIsLoadingMonthlyPayments(true);
 
@@ -230,8 +249,11 @@ function PaymentForm() {
 
   useEffect(() => {
     loadPaymentOptions();
-    loadMonthlyPayments();
   }, []);
+
+  useEffect(() => {
+    loadMonthlyPayments(monthlyPaymentsReferenceMonth);
+  }, [monthlyPaymentsReferenceMonth]);
 
   const handlePaymentSubmit = async (event) => {
     event.preventDefault();
@@ -446,17 +468,29 @@ function PaymentForm() {
         <div className="card-header-row">
           <div>
             <span className="section-label section-label--light">GET /payment/monthly-reference</span>
-            <h2>Pagamentos do proximo mes</h2>
+            <h2>Pagamentos por mes de referencia</h2>
           </div>
-          <button type="button" className="ghost-btn ghost-btn--light" onClick={loadMonthlyPayments}>
+          <button
+            type="button"
+            className="ghost-btn ghost-btn--light"
+            onClick={() => loadMonthlyPayments(monthlyPaymentsReferenceMonth)}
+          >
             Atualizar
           </button>
         </div>
 
         <p className="card-copy card-copy--light">
-          A consulta sempre usa o mes atual + 1. Exemplo: durante maio/2026, a API recebe
-          `year=2026&month=6`.
+          Selecione o mes/ano desejado para consultar a API com o periodo informado.
         </p>
+
+        <label className="field">
+          <span>Mes/Ano da listagem</span>
+          <input
+            type="month"
+            value={monthlyPaymentsReferenceMonth}
+            onChange={(event) => setMonthlyPaymentsReferenceMonth(event.target.value)}
+          />
+        </label>
 
         <div className="table-wrap table-wrap--light">
           <table className="data-table">
@@ -476,7 +510,7 @@ function PaymentForm() {
 
               {!isLoadingMonthlyPayments && monthlyPayments.length === 0 ? (
                 <tr>
-                  <td colSpan="3">Nenhum pagamento encontrado para o proximo mes.</td>
+                  <td colSpan="3">Nenhum pagamento encontrado para o mes/ano selecionado.</td>
                 </tr>
               ) : null}
 
