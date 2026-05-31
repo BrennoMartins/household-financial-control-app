@@ -1,4 +1,17 @@
 import { useEffect, useState } from 'react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts';
 
 const highlights = [
   {
@@ -22,8 +35,92 @@ const categories = [
   'Lazer e objetivos da familia',
 ];
 
-const navItems = ['Home', 'Cadastro', 'Dashboards'];
+const navItems = ['Home', 'Cadastro', 'Dashboards', 'Database'];
 const cadastroTabs = ['Pagamento', 'Categoria'];
+
+const databaseColumns = [
+  { key: 'owner-name', label: 'Responsavel', type: 'text', valueGetter: (payment) => payment.owner?.name },
+  { key: 'payment-date', label: 'Pagamento', type: 'date' },
+  { key: 'reference-date', label: 'Referencia', type: 'date' },
+  { key: 'category-name', label: 'Categoria', type: 'text', valueGetter: (payment) => payment.category?.name },
+  { key: 'description', label: 'Descricao', type: 'text' },
+  { key: 'amount', label: 'Valor', type: 'currency' },
+  { key: 'payment-method', label: 'Metodo', type: 'text' },
+  { key: 'is-installments', label: 'Parcelado', type: 'boolean' },
+  { key: 'number-installments', label: 'Parcelas', type: 'number' },
+  { key: 'card-name', label: 'Cartao', type: 'text', valueGetter: (payment) => payment.card?.name },
+  { key: 'is-fixed-expense', label: 'Fixo', type: 'boolean' },
+];
+
+const formatCurrency = (value) =>
+  new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(Number(value) || 0);
+
+const formatBoolean = (value) => (value ? 'Sim' : 'Nao');
+
+const getPaymentColumnValue = (payment, column) => {
+  if (typeof column.valueGetter === 'function') {
+    return column.valueGetter(payment);
+  }
+
+  return payment[column.key];
+};
+
+const getPaymentComparableValue = (payment, column) => {
+  const rawValue = getPaymentColumnValue(payment, column);
+
+  if (column.type === 'number' || column.type === 'currency') {
+    return Number(rawValue) || 0;
+  }
+
+  if (column.type === 'boolean') {
+    return rawValue ? 1 : 0;
+  }
+
+  return String(rawValue ?? '').toLowerCase();
+};
+
+const formatPaymentCell = (payment, column) => {
+  const value = getPaymentColumnValue(payment, column);
+
+  if (value == null || value === '') {
+    return '-';
+  }
+
+  if (column.type === 'currency') {
+    return formatCurrency(value);
+  }
+
+  if (column.type === 'boolean') {
+    return formatBoolean(value);
+  }
+
+  return String(value);
+};
+
+const matchesPaymentFilter = (payment, column, filterValue) => {
+  if (!filterValue) {
+    return true;
+  }
+
+  const rawValue = getPaymentColumnValue(payment, column);
+
+  if (column.type === 'boolean') {
+    return String(Boolean(rawValue)) === filterValue;
+  }
+
+  if (column.type === 'date') {
+    return String(rawValue ?? '').startsWith(filterValue);
+  }
+
+  if (column.type === 'number' || column.type === 'currency') {
+    return String(rawValue ?? '').includes(filterValue);
+  }
+
+  return String(rawValue ?? '').toLowerCase().includes(filterValue.toLowerCase());
+};
 
 function HomePage() {
   return (
@@ -103,12 +200,6 @@ function PaymentForm() {
 
     return `${year}-${String(month).padStart(2, '0')}`;
   };
-
-  const formatCurrency = (value) =>
-    new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-    }).format(value);
 
   const [paymentDate, setPaymentDate] = useState('2026-05-10');
   const [paymentReferenceMonth, setPaymentReferenceMonth] = useState('2026-05');
@@ -711,48 +802,569 @@ function CadastroPage() {
   );
 }
 
+const DASH_COLORS = [
+  '#386641', '#ffd166', '#2ec4b6', '#e76f51', '#264653',
+  '#a8dadc', '#457b9d', '#e9c46a', '#f4a261', '#e63946',
+];
+const OWNER_COLORS = ['#386641', '#ffd166', '#2ec4b6'];
+const CARD_COLORS = ['#14213d', '#386641', '#ffd166'];
+const MONTH_NAMES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+const TOOLTIP_STYLE = {
+  background: 'rgba(255,255,255,0.96)',
+  border: '1px solid rgba(20,33,61,0.12)',
+  borderRadius: '14px',
+  boxShadow: '0 12px 30px rgba(20,33,61,0.12)',
+  fontFamily: 'inherit',
+};
+
+function formatMonthLabel(key) {
+  const [year, month] = key.split('-');
+  return `${MONTH_NAMES[Number(month) - 1]}/${String(year).slice(2)}`;
+}
+
 function DashboardsPage() {
+  const [payments, setPayments] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [dashError, setDashError] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState('');
+  const [selectedOwner, setSelectedOwner] = useState(null);
+
+  useEffect(() => {
+    async function load() {
+      setIsLoading(true);
+      setDashError('');
+      try {
+        const res = await fetch('http://localhost:3000/payment');
+        if (!res.ok) throw new Error('Nao foi possivel carregar os pagamentos.');
+        const data = await res.json();
+        setPayments(Array.isArray(data.payments) ? data.payments : []);
+      } catch (e) {
+        setDashError(e instanceof Error ? e.message : 'Erro inesperado.');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  const availableMonths = [...new Set(
+    payments
+      .map((p) => (p['reference-date'] ?? '').substring(0, 7))
+      .filter((k) => k.length === 7),
+  )].sort();
+
+  const visiblePayments = selectedMonth
+    ? payments.filter((p) => (p['reference-date'] ?? '').startsWith(selectedMonth))
+    : payments;
+
+  // visiblePayments filtrado também por owner (usado em todos os gráficos exceto o de owner)
+  const ownerFilteredPayments = selectedOwner
+    ? visiblePayments.filter((p) => (p.owner?.name ?? 'Desconhecido') === selectedOwner)
+    : visiblePayments;
+
+  const totalAmount = ownerFilteredPayments.reduce((sum, p) => sum + p.amount, 0);
+  const fixedAmount = ownerFilteredPayments.filter((p) => p['is-fixed-expense']).reduce((sum, p) => sum + p.amount, 0);
+  const installmentsAmount = ownerFilteredPayments.filter((p) => p['is-installments']).reduce((sum, p) => sum + p.amount, 0);
+  const variableAmount = ownerFilteredPayments.filter((p) => !p['is-fixed-expense']).reduce((sum, p) => sum + p.amount, 0);
+
+  const byCategory = Object.values(
+    ownerFilteredPayments.reduce((acc, p) => {
+      const name = p.category?.name ?? 'Sem categoria';
+      if (!acc[name]) acc[name] = { name, value: 0 };
+      acc[name].value += p.amount;
+      return acc;
+    }, {}),
+  )
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 10);
+
+  const byOwner = Object.values(
+    visiblePayments.reduce((acc, p) => {
+      const name = p.owner?.name ?? 'Desconhecido';
+      if (!acc[name]) acc[name] = { name, value: 0 };
+      acc[name].value += p.amount;
+      return acc;
+    }, {}),
+  );
+
+  const byCard = Object.values(
+    ownerFilteredPayments.reduce((acc, p) => {
+      const name = p.card?.name ?? 'Desconhecido';
+      if (!acc[name]) acc[name] = { name, value: 0 };
+      acc[name].value += p.amount;
+      return acc;
+    }, {}),
+  );
+
+  // Projecao mensal filtra por owner se selecionado, mas sempre exibe todos os meses como contexto
+  const byMonthSource = selectedOwner
+    ? payments.filter((p) => (p.owner?.name ?? 'Desconhecido') === selectedOwner)
+    : payments;
+
+  const byMonth = Object.values(
+    byMonthSource.reduce((acc, p) => {
+      const ref = p['reference-date'] ?? '';
+      const key = ref.substring(0, 7);
+      if (key.length < 7) return acc;
+      if (!acc[key]) {
+        acc[key] = { key, month: formatMonthLabel(key), value: 0 };
+      }
+      acc[key].value += p.amount;
+      return acc;
+    }, {}),
+  ).sort((a, b) => a.key.localeCompare(b.key));
+
+  const fixedVsVariable = [
+    { name: 'Fixo', value: parseFloat(fixedAmount.toFixed(2)) },
+    { name: 'Variavel', value: parseFloat(variableAmount.toFixed(2)) },
+  ];
+
+  const kpiCards = [
+    { label: 'Total no periodo', value: formatCurrency(totalAmount), color: '#386641' },
+    { label: 'Despesas fixas', value: formatCurrency(fixedAmount), color: '#14213d' },
+    { label: 'Total parcelado', value: formatCurrency(installmentsAmount), color: '#2ec4b6' },
+    { label: 'Gastos variaveis', value: formatCurrency(variableAmount), color: '#e76f51' },
+  ];
+
+  if (isLoading) {
+    return (
+      <section className="content-panel page-stack">
+        <div className="section-heading">
+          <span className="eyebrow">Dashboards</span>
+          <h1>Carregando dados...</h1>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="content-panel page-stack">
       <div className="section-heading">
         <span className="eyebrow">Dashboards</span>
-        <h1>Acompanhe os indicadores mais importantes em tempo real.</h1>
+        <h1>Visao financeira geral</h1>
         <p className="lead compact-lead">
-          Veja rapidamente o que esta acima do planejado, o quanto da renda esta comprometida e quais metas seguem no ritmo certo.
+          Analise seus gastos por categoria, responsavel, cartao e projecao mensal com base nos lancamentos cadastrados.
         </p>
       </div>
 
-      <div className="dashboard-grid">
-        {[
-          ['Comprometimento da renda', '48%', 'Dentro da faixa saudavel'],
-          ['Economia no mes', 'R$ 920', '18% acima da meta'],
-          ['Contas recorrentes', '12 itens', 'Proximo vencimento em 3 dias'],
-        ].map(([title, value, description]) => (
-          <article key={title} className="content-card stat-card">
-            <span className="section-label">Indicador</span>
-            <h2>{title}</h2>
-            <strong>{value}</strong>
-            <p>{description}</p>
+      {dashError ? <p className="form-feedback error">{dashError}</p> : null}
+
+      <div className="dash-filter-bar">
+        <label className="dash-filter-label" htmlFor="dash-month-select">Mes de referencia</label>
+        <select
+          id="dash-month-select"
+          className="dash-month-select"
+          value={selectedMonth}
+          onChange={(event) => setSelectedMonth(event.target.value)}
+        >
+          <option value="">Todos os meses</option>
+          {availableMonths.map((key) => (
+            <option key={key} value={key}>
+              {formatMonthLabel(key)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="dash-kpi-grid">
+        {kpiCards.map((card) => (
+          <article key={card.label} className="content-card dash-kpi-card">
+            <span className="dash-kpi-value" style={{ color: card.color }}>{card.value}</span>
+            <span className="dash-kpi-label">{card.label}</span>
           </article>
         ))}
       </div>
 
-      <article className="content-card timeline-card">
-        <div className="dashboard-card__top">
+      <div className="dash-charts-grid">
+        <article className="content-card">
+          <span className="section-label">Top Categorias</span>
+          <h2>Maiores gastos por categoria</h2>
+          <ResponsiveContainer width="100%" height={340}>
+            <BarChart
+              data={byCategory}
+              layout="vertical"
+              margin={{ top: 8, right: 24, bottom: 8, left: 110 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(20,33,61,0.08)" horizontal={false} />
+              <XAxis
+                type="number"
+                tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`}
+                tick={{ fill: 'rgba(20,33,61,0.55)', fontSize: 11 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                type="category"
+                dataKey="name"
+                tick={{ fill: 'rgba(20,33,61,0.7)', fontSize: 12 }}
+                axisLine={false}
+                tickLine={false}
+                width={110}
+              />
+              <Tooltip
+                formatter={(value) => [formatCurrency(value), 'Total']}
+                contentStyle={TOOLTIP_STYLE}
+              />
+              <Bar dataKey="value" radius={[0, 8, 8, 0]} maxBarSize={26}>
+                {byCategory.map((_, i) => (
+                  <Cell key={i} fill={DASH_COLORS[i % DASH_COLORS.length]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </article>
+
+        <article className="content-card">
+          <span className="section-label">Responsavel</span>
+          <h2>Distribuicao por responsavel</h2>
+          {selectedOwner ? (
+            <p className="card-copy">
+              Filtrando todos os graficos por: <strong>{selectedOwner}</strong>{' '}·{' '}
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => setSelectedOwner(null)}
+              >
+                Limpar filtro
+              </button>
+            </p>
+          ) : (
+            <p className="card-copy">Clique em uma fatia para filtrar todos os graficos pelo responsavel.</p>
+          )}
+          <ResponsiveContainer width="100%" height={340}>
+            <PieChart>
+              <Pie
+                data={byOwner}
+                dataKey="value"
+                nameKey="name"
+                cx="50%"
+                cy="46%"
+                outerRadius={120}
+                innerRadius={60}
+                paddingAngle={3}
+                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                labelLine={{ stroke: 'rgba(20,33,61,0.3)' }}
+                onClick={(data) => setSelectedOwner(selectedOwner === data.name ? null : data.name)}
+                style={{ cursor: 'pointer' }}
+              >
+                {byOwner.map((entry, i) => (
+                  <Cell
+                    key={i}
+                    fill={OWNER_COLORS[i % OWNER_COLORS.length]}
+                    opacity={!selectedOwner || selectedOwner === entry.name ? 1 : 0.35}
+                    stroke={selectedOwner === entry.name ? '#14213d' : 'none'}
+                    strokeWidth={selectedOwner === entry.name ? 2 : 0}
+                  />
+                ))}
+              </Pie>
+              <Tooltip
+                formatter={(value) => [formatCurrency(value), 'Total']}
+                contentStyle={TOOLTIP_STYLE}
+              />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </article>
+      </div>
+
+      <article className="content-card">
+        <span className="section-label">Projecao Mensal</span>
+        <h2>Total por mes de referencia da fatura</h2>
+        <p className="card-copy">
+          {selectedMonth
+            ? `Mes selecionado destacado. Grafico exibe todos os meses como contexto.`
+            : 'Distribuicao dos lancamentos ao longo dos meses de competencia.'}
+        </p>
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart data={byMonth} margin={{ top: 8, right: 24, bottom: 8, left: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(20,33,61,0.08)" vertical={false} />
+            <XAxis
+              dataKey="month"
+              tick={{ fill: 'rgba(20,33,61,0.6)', fontSize: 12 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`}
+              tick={{ fill: 'rgba(20,33,61,0.6)', fontSize: 12 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <Tooltip
+              formatter={(value) => [formatCurrency(value), 'Total']}
+              contentStyle={TOOLTIP_STYLE}
+            />
+            <Bar dataKey="value" radius={[8, 8, 0, 0]} maxBarSize={52}>
+              {byMonth.map((entry) => (
+                <Cell
+                  key={entry.key}
+                  fill={
+                    !selectedMonth || entry.key === selectedMonth
+                      ? '#386641'
+                      : 'rgba(20,33,61,0.12)'
+                  }
+                />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </article>
+
+      <div className="dash-charts-grid">
+        <article className="content-card">
+          <span className="section-label">Cartao</span>
+          <h2>Gastos por cartao</h2>
+          <ResponsiveContainer width="100%" height={280}>
+            <PieChart>
+              <Pie
+                data={byCard}
+                dataKey="value"
+                nameKey="name"
+                cx="50%"
+                cy="46%"
+                outerRadius={105}
+                innerRadius={52}
+                paddingAngle={3}
+                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                labelLine={{ stroke: 'rgba(20,33,61,0.3)' }}
+              >
+                {byCard.map((_, i) => (
+                  <Cell key={i} fill={CARD_COLORS[i % CARD_COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip
+                formatter={(value) => [formatCurrency(value), 'Total']}
+                contentStyle={TOOLTIP_STYLE}
+              />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </article>
+
+        <article className="content-card">
+          <span className="section-label">Tipo de Gasto</span>
+          <h2>Fixo vs Variavel</h2>
+          <ResponsiveContainer width="100%" height={280}>
+            <PieChart>
+              <Pie
+                data={fixedVsVariable}
+                dataKey="value"
+                nameKey="name"
+                cx="50%"
+                cy="46%"
+                outerRadius={105}
+                innerRadius={52}
+                paddingAngle={3}
+                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                labelLine={{ stroke: 'rgba(20,33,61,0.3)' }}
+              >
+                <Cell fill="#386641" />
+                <Cell fill="#ffd166" />
+              </Pie>
+              <Tooltip
+                formatter={(value) => [formatCurrency(value), 'Total']}
+                contentStyle={TOOLTIP_STYLE}
+              />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </article>
+      </div>
+
+    </section>
+  );
+}
+
+function DatabasePage() {
+  const [payments, setPayments] = useState([]);
+  const [isLoadingPayments, setIsLoadingPayments] = useState(true);
+  const [databaseFeedback, setDatabaseFeedback] = useState({ type: '', message: '' });
+  const [sortConfig, setSortConfig] = useState({ key: 'description', direction: 'asc' });
+  const [filters, setFilters] = useState(() =>
+    databaseColumns.reduce((accumulator, column) => {
+      accumulator[column.key] = '';
+      return accumulator;
+    }, {}),
+  );
+
+  const loadPayments = async () => {
+    setIsLoadingPayments(true);
+
+    try {
+      const response = await fetch('http://localhost:3000/payment');
+
+      if (!response.ok) {
+        throw new Error('Nao foi possivel carregar os pagamentos do database.');
+      }
+
+      const data = await response.json();
+      setPayments(Array.isArray(data.payments) ? data.payments : []);
+      setDatabaseFeedback({ type: '', message: '' });
+    } catch (error) {
+      setPayments([]);
+      setDatabaseFeedback({
+        type: 'error',
+        message:
+          error instanceof Error ? error.message : 'Erro inesperado ao carregar o database.',
+      });
+    } finally {
+      setIsLoadingPayments(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPayments();
+  }, []);
+
+  const handleFilterChange = (columnKey, value) => {
+    setFilters((currentFilters) => ({
+      ...currentFilters,
+      [columnKey]: value,
+    }));
+  };
+
+  const handleSort = (columnKey) => {
+    setSortConfig((currentConfig) => {
+      if (currentConfig.key === columnKey) {
+        return {
+          key: columnKey,
+          direction: currentConfig.direction === 'asc' ? 'desc' : 'asc',
+        };
+      }
+
+      return { key: columnKey, direction: 'asc' };
+    });
+  };
+
+  const filteredPayments = payments.filter((payment) =>
+    databaseColumns.every((column) => matchesPaymentFilter(payment, column, filters[column.key])),
+  );
+
+  const sortedPayments = [...filteredPayments].sort((leftPayment, rightPayment) => {
+    const activeColumn = databaseColumns.find((column) => column.key === sortConfig.key);
+
+    if (!activeColumn) {
+      return 0;
+    }
+
+    const leftValue = getPaymentComparableValue(leftPayment, activeColumn);
+    const rightValue = getPaymentComparableValue(rightPayment, activeColumn);
+
+    if (leftValue === rightValue) {
+      return 0;
+    }
+
+    if (leftValue > rightValue) {
+      return sortConfig.direction === 'asc' ? 1 : -1;
+    }
+
+    return sortConfig.direction === 'asc' ? -1 : 1;
+  });
+
+  return (
+    <section className="content-panel page-stack">
+      <div className="section-heading">
+        <span className="eyebrow">Database</span>
+        <h1>Consulte todos os pagamentos em uma tabela unica.</h1>
+        <p className="lead compact-lead">
+          Use os filtros por coluna e clique no cabecalho para ordenar qualquer campo retornado pela API.
+        </p>
+      </div>
+
+      <article className="content-card database-card">
+        <div className="card-header-row">
           <div>
-            <p className="section-label">Leitura semanal</p>
-            <h2>Tendencia dos ultimos dias</h2>
+            <span className="section-label">GET /payment</span>
+            <h2>Base completa de pagamentos</h2>
           </div>
-          <span className="status-pill">Estavel</span>
+          <button type="button" className="ghost-btn" onClick={loadPayments}>
+            Atualizar
+          </button>
         </div>
 
-        <div className="trend-bars" aria-label="Resumo visual dos gastos da semana">
-          {[42, 58, 36, 74, 64, 48, 52].map((height, index) => (
-            <div key={height} className="trend-bar-group">
-              <div className="trend-bar" style={{ height: `${height * 2}px` }} />
-              <span>{['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'][index]}</span>
-            </div>
-          ))}
+        <p className="card-copy">
+          {filteredPayments.length} de {payments.length} pagamentos exibidos.
+        </p>
+
+        {databaseFeedback.message ? (
+          <p className={databaseFeedback.type === 'success' ? 'form-feedback success' : 'form-feedback error'}>
+            {databaseFeedback.message}
+          </p>
+        ) : null}
+
+        <div className="table-wrap table-wrap--database">
+          <table className="data-table data-table--dark">
+            <thead>
+              <tr>
+                {databaseColumns.map((column) => {
+                  const isActiveSort = sortConfig.key === column.key;
+                  const directionLabel = isActiveSort && sortConfig.direction === 'asc' ? '↑' : '↓';
+
+                  return (
+                    <th key={column.key}>
+                      <button
+                        type="button"
+                        className={isActiveSort ? 'table-sort active' : 'table-sort'}
+                        onClick={() => handleSort(column.key)}
+                      >
+                        <span>{column.label}</span>
+                        <span>{isActiveSort ? directionLabel : '↕'}</span>
+                      </button>
+                    </th>
+                  );
+                })}
+              </tr>
+              <tr className="filter-row">
+                {databaseColumns.map((column) => (
+                  <th key={`${column.key}-filter`}>
+                    {column.type === 'boolean' ? (
+                      <select
+                        className="table-filter"
+                        value={filters[column.key]}
+                        onChange={(event) => handleFilterChange(column.key, event.target.value)}
+                      >
+                        <option value="">Todos</option>
+                        <option value="true">Sim</option>
+                        <option value="false">Nao</option>
+                      </select>
+                    ) : (
+                      <input
+                        className="table-filter"
+                        type={column.type === 'date' ? 'date' : column.type === 'number' ? 'number' : 'text'}
+                        placeholder={`Filtrar ${column.label}`}
+                        value={filters[column.key]}
+                        onChange={(event) => handleFilterChange(column.key, event.target.value)}
+                      />
+                    )}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {isLoadingPayments ? (
+                <tr>
+                  <td colSpan={databaseColumns.length}>Carregando pagamentos...</td>
+                </tr>
+              ) : null}
+
+              {!isLoadingPayments && sortedPayments.length === 0 ? (
+                <tr>
+                  <td colSpan={databaseColumns.length}>Nenhum pagamento encontrado com os filtros atuais.</td>
+                </tr>
+              ) : null}
+
+              {!isLoadingPayments
+                ? sortedPayments.map((payment) => (
+                    <tr key={payment.id}>
+                      {databaseColumns.map((column) => (
+                        <td key={`${payment.id}-${column.key}`}>{formatPaymentCell(payment, column)}</td>
+                      ))}
+                    </tr>
+                  ))
+                : null}
+            </tbody>
+          </table>
         </div>
       </article>
     </section>
@@ -769,6 +1381,10 @@ function App() {
 
     if (activePage === 'Dashboards') {
       return <DashboardsPage />;
+    }
+
+    if (activePage === 'Database') {
+      return <DatabasePage />;
     }
 
     return <HomePage />;
