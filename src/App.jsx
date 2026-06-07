@@ -13,28 +13,6 @@ import {
   Legend,
 } from 'recharts';
 
-const highlights = [
-  {
-    value: 'R$ 4.820',
-    label: 'Orcamento mensal planejado',
-  },
-  {
-    value: '62%',
-    label: 'Essenciais ja mapeados',
-  },
-  {
-    value: '3 metas',
-    label: 'Reserva, viagem e reformas',
-  },
-];
-
-const categories = [
-  'Moradia e contas fixas',
-  'Mercado e rotina da casa',
-  'Transporte e educacao',
-  'Lazer e objetivos da familia',
-];
-
 const navItems = ['Home', 'Cadastro', 'Dashboards', 'Database'];
 const cadastroTabs = ['Pagamento', 'Categoria'];
 
@@ -123,64 +101,238 @@ const matchesPaymentFilter = (payment, column, filterValue) => {
 };
 
 function HomePage() {
+  const [payments, setPayments] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch('http://localhost:3000/payment');
+        if (!res.ok) return;
+        const data = await res.json();
+        setPayments(Array.isArray(data.payments) ? data.payments : []);
+      } catch {
+        // silent fail — home shows fallback state
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  const currentMonthKey = (() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  })();
+
+  const nextMonthKey = (() => {
+    const now = new Date();
+    const d = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  })();
+
+  const currentMonthPayments = payments.filter((p) =>
+    (p['reference-date'] ?? '').startsWith(currentMonthKey),
+  );
+
+  const nextMonthPayments = payments.filter((p) =>
+    (p['reference-date'] ?? '').startsWith(nextMonthKey),
+  );
+
+  const totalThisMonth = currentMonthPayments.reduce((sum, p) => sum + p.amount, 0);
+  const activeCategories = new Set(payments.map((p) => p.category?.name).filter(Boolean)).size;
+
+  const dynamicHighlights = [
+    { value: isLoading ? '...' : formatCurrency(totalThisMonth), label: 'Gasto no mes atual' },
+    { value: isLoading ? '...' : String(activeCategories), label: 'Categorias com lancamentos' },
+    { value: isLoading ? '...' : String(payments.length), label: 'Pagamentos registrados' },
+  ];
+
+  const byCategory = Object.values(
+    nextMonthPayments.reduce((acc, p) => {
+      const name = p.category?.name ?? 'Sem categoria';
+      if (!acc[name]) acc[name] = { name, value: 0 };
+      acc[name].value += p.amount;
+      return acc;
+    }, {}),
+  )
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5);
+
+  const totalForPie = byCategory.reduce((sum, c) => sum + c.value, 0);
+
+  const recentPayments = [...payments]
+    .sort((a, b) => (b['payment-date'] ?? '').localeCompare(a['payment-date'] ?? ''))
+    .slice(0, 5);
+
+  const byMonth = (() => {
+    const now = new Date();
+    const startDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const months = Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      return { key, month: formatMonthLabel(key), value: 0 };
+    });
+    payments.forEach((p) => {
+      const key = (p['reference-date'] ?? '').substring(0, 7);
+      const entry = months.find((m) => m.key === key);
+      if (entry) entry.value += p.amount;
+    });
+    return months;
+  })();
+
   return (
-    <main className="hero-layout">
-      <section className="hero-copy">
-        <span className="eyebrow">Household Financial</span>
-        <h1>Organize a vida financeira da casa em um unico painel.</h1>
-        <p className="lead">
-          Planeje gastos, acompanhe metas e deixe as decisoes da familia mais claras com uma visao
-          simples do que entra, sai e precisa de atencao.
-        </p>
+    <section className="content-panel page-stack">
+      <div className="hero-layout">
+        <section className="hero-copy">
+          <span className="eyebrow">Household Financial</span>
+          <h1>Organize a vida financeira da casa em um unico painel.</h1>
+          <p className="lead">
+            Planeje gastos, acompanhe metas e deixe as decisoes da familia mais claras com uma visao
+            simples do que entra, sai e precisa de atencao.
+          </p>
 
-        <div className="hero-actions">
-          <button type="button" className="primary-btn">
-            Criar meu planejamento
-          </button>
-          <button type="button" className="ghost-btn">
-            Ver demonstracao
-          </button>
-        </div>
-
-        <div className="highlights-grid">
-          {highlights.map((item) => (
-            <article key={item.label} className="metric-card">
-              <strong>{item.value}</strong>
-              <span>{item.label}</span>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <aside className="dashboard-card">
-        <div className="dashboard-card__top">
-          <div>
-            <p className="section-label">Resumo da semana</p>
-            <h2>Fluxo familiar equilibrado</h2>
+          <div className="hero-actions">
+            <button type="button" className="primary-btn">
+              Criar meu planejamento
+            </button>
+            <button type="button" className="ghost-btn">
+              Ver demonstracao
+            </button>
           </div>
-          <span className="status-pill">+12% previsibilidade</span>
-        </div>
 
-        <div className="budget-ring">
-          <div>
-            <span>Saldo disponivel</span>
-            <strong>R$ 1.940</strong>
+          <div className="highlights-grid">
+            {dynamicHighlights.map((item) => (
+              <article key={item.label} className="metric-card">
+                <strong>{item.value}</strong>
+                <span>{item.label}</span>
+              </article>
+            ))}
           </div>
-        </div>
+        </section>
 
-        <div className="category-list">
-          {categories.map((category, index) => (
-            <div key={category} className="category-row">
-              <div>
-                <span>{category}</span>
-                <small>Prioridade {index + 1}</small>
-              </div>
-              <strong>{[82, 67, 54, 38][index]}%</strong>
+        <aside className="dashboard-card">
+          <div className="dashboard-card__top">
+            <div>
+              <p className="section-label">Top categorias · {formatMonthLabel(nextMonthKey)}</p>
+              <h2>Maiores gastos</h2>
             </div>
-          ))}
-        </div>
-      </aside>
-    </main>
+            {!isLoading && byCategory.length > 0 && (
+              <span className="status-pill">{byCategory.length} categorias</span>
+            )}
+          </div>
+
+          {isLoading ? (
+            <p className="card-copy home-loading-copy">Carregando...</p>
+          ) : byCategory.length === 0 ? (
+            <p className="card-copy home-loading-copy">Nenhum lancamento em {formatMonthLabel(nextMonthKey)}.</p>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie
+                    data={byCategory}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={82}
+                    innerRadius={44}
+                    paddingAngle={2}
+                  >
+                    {byCategory.map((_, i) => (
+                      <Cell key={i} fill={DASH_COLORS[i % DASH_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value) => [formatCurrency(value), 'Total']}
+                    contentStyle={TOOLTIP_STYLE}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+
+              <div className="category-list">
+                {byCategory.map((cat, i) => (
+                  <div key={cat.name} className="category-row">
+                    <span className="category-row__name">{cat.name}</span>
+                    <div className="category-bar-wrap">
+                      <div
+                        className="category-bar"
+                        style={{
+                          width: `${Math.round((cat.value / totalForPie) * 100)}%`,
+                          background: DASH_COLORS[i % DASH_COLORS.length],
+                        }}
+                      />
+                    </div>
+                    <strong>{formatCurrency(cat.value)}</strong>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </aside>
+      </div>
+
+      {!isLoading && (
+        <article className="content-card">
+          <span className="section-label">Projecao Mensal</span>
+          <h2>Gastos por mes de referencia</h2>
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={byMonth} margin={{ top: 8, right: 24, bottom: 8, left: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(20,33,61,0.08)" vertical={false} />
+              <XAxis
+                dataKey="month"
+                tick={{ fill: 'rgba(20,33,61,0.6)', fontSize: 12 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`}
+                tick={{ fill: 'rgba(20,33,61,0.6)', fontSize: 12 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip
+                formatter={(value) => [formatCurrency(value), 'Total']}
+                contentStyle={TOOLTIP_STYLE}
+              />
+              <Bar dataKey="value" fill="#386641" radius={[8, 8, 0, 0]} maxBarSize={52} />
+            </BarChart>
+          </ResponsiveContainer>
+        </article>
+      )}
+
+      {!isLoading && recentPayments.length > 0 && (
+        <article className="content-card">
+          <span className="section-label">Ultimos lancamentos</span>
+          <h2>Pagamentos recentes</h2>
+          <div className="table-wrap table-wrap--database" style={{ marginTop: '20px' }}>
+            <table className="data-table data-table--dark">
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Responsavel</th>
+                  <th>Categoria</th>
+                  <th>Descricao</th>
+                  <th>Valor</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentPayments.map((payment, i) => (
+                  <tr key={payment.id ?? i}>
+                    <td>{payment['payment-date'] ?? '-'}</td>
+                    <td>{payment.owner?.name ?? '-'}</td>
+                    <td>{payment.category?.name ?? '-'}</td>
+                    <td>{payment.description ?? '-'}</td>
+                    <td>{formatCurrency(payment.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      )}
+    </section>
   );
 }
 
@@ -201,8 +353,13 @@ function PaymentForm() {
     return `${year}-${String(month).padStart(2, '0')}`;
   };
 
-  const [paymentDate, setPaymentDate] = useState('2026-05-10');
-  const [paymentReferenceMonth, setPaymentReferenceMonth] = useState('2026-05');
+  const getTodayValue = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  };
+
+  const [paymentDate, setPaymentDate] = useState(getTodayValue);
+  const [paymentReferenceMonth, setPaymentReferenceMonth] = useState(getNextReferenceMonthValue);
   const [paymentMethod, setPaymentMethod] = useState('credit-card');
   const [cardId, setCardId] = useState('');
   const [isInstallments, setIsInstallments] = useState(false);
@@ -981,37 +1138,29 @@ function DashboardsPage() {
           <span className="section-label">Top Categorias</span>
           <h2>Maiores gastos por categoria</h2>
           <ResponsiveContainer width="100%" height={340}>
-            <BarChart
-              data={byCategory}
-              layout="vertical"
-              margin={{ top: 8, right: 24, bottom: 8, left: 110 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(20,33,61,0.08)" horizontal={false} />
-              <XAxis
-                type="number"
-                tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`}
-                tick={{ fill: 'rgba(20,33,61,0.55)', fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                type="category"
-                dataKey="name"
-                tick={{ fill: 'rgba(20,33,61,0.7)', fontSize: 12 }}
-                axisLine={false}
-                tickLine={false}
-                width={110}
-              />
+            <PieChart>
+              <Pie
+                data={byCategory}
+                dataKey="value"
+                nameKey="name"
+                cx="50%"
+                cy="46%"
+                outerRadius={120}
+                innerRadius={52}
+                paddingAngle={2}
+                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                labelLine={{ stroke: 'rgba(20,33,61,0.3)' }}
+              >
+                {byCategory.map((_, i) => (
+                  <Cell key={i} fill={DASH_COLORS[i % DASH_COLORS.length]} />
+                ))}
+              </Pie>
               <Tooltip
                 formatter={(value) => [formatCurrency(value), 'Total']}
                 contentStyle={TOOLTIP_STYLE}
               />
-              <Bar dataKey="value" radius={[0, 8, 8, 0]} maxBarSize={26}>
-                {byCategory.map((_, i) => (
-                  <Cell key={i} fill={DASH_COLORS[i % DASH_COLORS.length]} />
-                ))}
-              </Bar>
-            </BarChart>
+              <Legend />
+            </PieChart>
           </ResponsiveContainer>
         </article>
 
@@ -1143,32 +1292,40 @@ function DashboardsPage() {
         </article>
 
         <article className="content-card">
-          <span className="section-label">Tipo de Gasto</span>
-          <h2>Fixo vs Variavel</h2>
-          <ResponsiveContainer width="100%" height={280}>
-            <PieChart>
-              <Pie
-                data={fixedVsVariable}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="46%"
-                outerRadius={105}
-                innerRadius={52}
-                paddingAngle={3}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                labelLine={{ stroke: 'rgba(20,33,61,0.3)' }}
-              >
-                <Cell fill="#386641" />
-                <Cell fill="#ffd166" />
-              </Pie>
-              <Tooltip
-                formatter={(value) => [formatCurrency(value), 'Total']}
-                contentStyle={TOOLTIP_STYLE}
-              />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
+          <span className="section-label">Parcelamentos</span>
+          <h2>Compras parceladas</h2>
+          {(() => {
+            const installmentPayments = ownerFilteredPayments.filter((p) => p['is-installments']);
+            if (installmentPayments.length === 0) {
+              return <p className="card-copy" style={{ marginTop: '12px' }}>Nenhuma compra parcelada no periodo selecionado.</p>;
+            }
+            return (
+              <div className="table-wrap" style={{ marginTop: '16px' }}>
+                <table className="data-table data-table--dark">
+                  <thead>
+                    <tr>
+                      <th>Categoria</th>
+                      <th>Parcela</th>
+                      <th>Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {installmentPayments.map((p, i) => {
+                      const current = p.quantity_installments ?? '-';
+                      const total = p['number-installments'] ?? '-';
+                      return (
+                        <tr key={i}>
+                          <td>{p.category?.name ?? '-'}</td>
+                          <td>{`${current}/${total}`}</td>
+                          <td>{formatCurrency(p.amount)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
         </article>
       </div>
 
