@@ -1077,6 +1077,33 @@ function DashboardsPage() {
     { name: 'Variavel', value: parseFloat(variableAmount.toFixed(2)) },
   ];
 
+  const installmentsForecast = (() => {
+    const now = new Date();
+    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const map = {};
+    payments.forEach((p) => {
+      if (!p['is-installments']) return;
+      const refDate = p['reference-date'] ?? '';
+      const refKey = refDate.substring(0, 7);
+      if (refKey.length < 7) return;
+      const quantityCurrent = Number(p['quantity_installments']) || 1;
+      const totalInstallments = Number(p['number-installments']) || 1;
+      const remaining = totalInstallments - quantityCurrent;
+      if (remaining <= 0) return;
+      const [refYear, refMonth] = refKey.split('-').map(Number);
+      for (let i = 1; i <= remaining; i++) {
+        const futureDate = new Date(refYear, refMonth - 1 + i, 1);
+        const futureKey = `${futureDate.getFullYear()}-${String(futureDate.getMonth() + 1).padStart(2, '0')}`;
+        if (futureKey <= currentMonthKey) continue;
+        if (!map[futureKey]) {
+          map[futureKey] = { key: futureKey, month: formatMonthLabel(futureKey), value: 0 };
+        }
+        map[futureKey].value += p.amount;
+      }
+    });
+    return Object.values(map).sort((a, b) => a.key.localeCompare(b.key));
+  })();
+
   const kpiCards = [
     { label: 'Total no periodo', value: formatCurrency(totalAmount), color: '#386641' },
     { label: 'Despesas fixas', value: formatCurrency(fixedAmount), color: '#14213d' },
@@ -1258,6 +1285,40 @@ function DashboardsPage() {
             </Bar>
           </BarChart>
         </ResponsiveContainer>
+      </article>
+
+      <article className="content-card">
+        <span className="section-label">Parcelas Futuras</span>
+        <h2>Projecao de parcelas por mes</h2>
+        <p className="card-copy">
+          Total a pagar de compras parceladas em andamento, mes a mes, com base nas parcelas restantes registradas.
+        </p>
+        {installmentsForecast.length === 0 ? (
+          <p className="card-copy" style={{ marginTop: '12px' }}>Nenhuma parcela futura encontrada.</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={installmentsForecast} margin={{ top: 8, right: 24, bottom: 8, left: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(20,33,61,0.08)" vertical={false} />
+              <XAxis
+                dataKey="month"
+                tick={{ fill: 'rgba(20,33,61,0.6)', fontSize: 12 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tickFormatter={(v) => `R$${(v / 1000).toFixed(1)}k`}
+                tick={{ fill: 'rgba(20,33,61,0.6)', fontSize: 12 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip
+                formatter={(value) => [formatCurrency(value), 'Total parcelado']}
+                contentStyle={TOOLTIP_STYLE}
+              />
+              <Bar dataKey="value" fill="#2ec4b6" radius={[8, 8, 0, 0]} maxBarSize={52} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
       </article>
 
       <div className="dash-charts-grid">
