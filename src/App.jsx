@@ -1,89 +1,355 @@
 import { useEffect, useState } from 'react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Legend,
+  ReferenceLine,
+} from 'recharts';
 
-const highlights = [
-  {
-    value: 'R$ 4.820',
-    label: 'Orcamento mensal planejado',
-  },
-  {
-    value: '62%',
-    label: 'Essenciais ja mapeados',
-  },
-  {
-    value: '3 metas',
-    label: 'Reserva, viagem e reformas',
-  },
-];
-
-const categories = [
-  'Moradia e contas fixas',
-  'Mercado e rotina da casa',
-  'Transporte e educacao',
-  'Lazer e objetivos da familia',
-];
-
-const navItems = ['Home', 'Cadastro', 'Dashboards'];
+const navItems = ['Home', 'Cadastro', 'Dashboards', 'Database'];
 const cadastroTabs = ['Pagamento', 'Categoria'];
 
-function HomePage() {
+const databaseColumns = [
+  { key: 'owner-name', label: 'Responsavel', type: 'text', valueGetter: (payment) => payment.owner?.name },
+  { key: 'payment-date', label: 'Pagamento', type: 'date' },
+  { key: 'reference-date', label: 'Referencia', type: 'date' },
+  { key: 'category-name', label: 'Categoria', type: 'text', valueGetter: (payment) => payment.category?.name },
+  { key: 'description', label: 'Descricao', type: 'text' },
+  { key: 'amount', label: 'Valor', type: 'currency' },
+  { key: 'payment-method', label: 'Metodo', type: 'text' },
+  { key: 'is-installments', label: 'Parcelado', type: 'boolean' },
+  { key: 'number-installments', label: 'Parcelas', type: 'number' },
+  { key: 'card-name', label: 'Cartao', type: 'text', valueGetter: (payment) => payment.card?.name },
+  { key: 'is-fixed-expense', label: 'Fixo', type: 'boolean' },
+];
+
+const formatCurrency = (value) =>
+  new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(Number(value) || 0);
+
+const formatBoolean = (value) => (value ? 'Sim' : 'Nao');
+
+const getPaymentColumnValue = (payment, column) => {
+  if (typeof column.valueGetter === 'function') {
+    return column.valueGetter(payment);
+  }
+
+  return payment[column.key];
+};
+
+const getPaymentComparableValue = (payment, column) => {
+  const rawValue = getPaymentColumnValue(payment, column);
+
+  if (column.type === 'number' || column.type === 'currency') {
+    return Number(rawValue) || 0;
+  }
+
+  if (column.type === 'boolean') {
+    return rawValue ? 1 : 0;
+  }
+
+  return String(rawValue ?? '').toLowerCase();
+};
+
+const formatPaymentCell = (payment, column) => {
+  const value = getPaymentColumnValue(payment, column);
+
+  if (value == null || value === '') {
+    return '-';
+  }
+
+  if (column.type === 'currency') {
+    return formatCurrency(value);
+  }
+
+  if (column.type === 'boolean') {
+    return formatBoolean(value);
+  }
+
+  return String(value);
+};
+
+const matchesPaymentFilter = (payment, column, filterValue) => {
+  if (!filterValue) {
+    return true;
+  }
+
+  const rawValue = getPaymentColumnValue(payment, column);
+
+  if (column.type === 'boolean') {
+    return String(Boolean(rawValue)) === filterValue;
+  }
+
+  if (column.type === 'date') {
+    return String(rawValue ?? '').startsWith(filterValue);
+  }
+
+  if (column.type === 'number' || column.type === 'currency') {
+    return String(rawValue ?? '').includes(filterValue);
+  }
+
+  return String(rawValue ?? '').toLowerCase().includes(filterValue.toLowerCase());
+};
+
+function OwnerPins({ ownerNames, selectedOwner, onSelectOwner }) {
   return (
-    <main className="hero-layout">
-      <section className="hero-copy">
-        <span className="eyebrow">Household Financial</span>
-        <h1>Organize a vida financeira da casa em um unico painel.</h1>
-        <p className="lead">
-          Planeje gastos, acompanhe metas e deixe as decisoes da familia mais claras com uma visao
-          simples do que entra, sai e precisa de atencao.
-        </p>
+    <div className="owner-pins" role="group" aria-label="Filtrar por responsavel">
+      <button
+        type="button"
+        className={`owner-pin${selectedOwner === null ? ' owner-pin--active' : ''}`}
+        aria-pressed={selectedOwner === null}
+        onClick={() => onSelectOwner(null)}
+      >
+        Todos
+      </button>
+      {ownerNames.map((name) => (
+        <button
+          key={name}
+          type="button"
+          className={`owner-pin${selectedOwner === name ? ' owner-pin--active' : ''}`}
+          aria-pressed={selectedOwner === name}
+          onClick={() => onSelectOwner(selectedOwner === name ? null : name)}
+        >
+          {name}
+        </button>
+      ))}
+    </div>
+  );
+}
 
-        <div className="hero-actions">
-          <button type="button" className="primary-btn">
-            Criar meu planejamento
-          </button>
-          <button type="button" className="ghost-btn">
-            Ver demonstracao
-          </button>
-        </div>
+function HomePage() {
+  const [allPayments, setAllPayments] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedOwner, setSelectedOwner] = useState(null);
 
-        <div className="highlights-grid">
-          {highlights.map((item) => (
-            <article key={item.label} className="metric-card">
-              <strong>{item.value}</strong>
-              <span>{item.label}</span>
-            </article>
-          ))}
-        </div>
-      </section>
+  const ownerNames = [...new Set(allPayments.map((p) => p.owner?.name).filter(Boolean))].sort();
+  const payments = selectedOwner
+    ? allPayments.filter((p) => p.owner?.name === selectedOwner)
+    : allPayments;
 
-      <aside className="dashboard-card">
-        <div className="dashboard-card__top">
-          <div>
-            <p className="section-label">Resumo da semana</p>
-            <h2>Fluxo familiar equilibrado</h2>
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch('http://localhost:3000/payment');
+        if (!res.ok) return;
+        const data = await res.json();
+        setAllPayments(Array.isArray(data.payments) ? data.payments : []);
+      } catch {
+        // silent fail — home shows fallback state
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  const nextMonthKey = (() => {
+    const now = new Date();
+    const d = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  })();
+
+  const nextMonthPayments = payments.filter((p) =>
+    (p['reference-date'] ?? '').startsWith(nextMonthKey),
+  );
+
+  const totalNextMonth = nextMonthPayments.reduce((sum, p) => sum + p.amount, 0);
+  const activeCategories = new Set(payments.map((p) => p.category?.name).filter(Boolean)).size;
+
+  const dynamicHighlights = [
+    { value: isLoading ? '...' : formatCurrency(totalNextMonth), label: `Gasto em ${formatMonthLabel(nextMonthKey)}` },
+    { value: isLoading ? '...' : String(activeCategories), label: 'Categorias com lancamentos' },
+    { value: isLoading ? '...' : String(payments.length), label: 'Pagamentos registrados' },
+  ];
+
+  const byCategory = Object.values(
+    nextMonthPayments.reduce((acc, p) => {
+      const name = p.category?.name ?? 'Sem categoria';
+      if (!acc[name]) acc[name] = { name, value: 0 };
+      acc[name].value += p.amount;
+      return acc;
+    }, {}),
+  )
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5);
+
+  const totalForPie = byCategory.reduce((sum, c) => sum + c.value, 0);
+
+  const recentPayments = [...payments]
+    .sort((a, b) => (b['payment-date'] ?? '').localeCompare(a['payment-date'] ?? ''))
+    .slice(0, selectedOwner ? 15 : 5);
+
+  const byMonth = (() => {
+    const now = new Date();
+    const startDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const months = Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      return { key, month: formatMonthLabel(key), value: 0 };
+    });
+    payments.forEach((p) => {
+      const key = (p['reference-date'] ?? '').substring(0, 7);
+      const entry = months.find((m) => m.key === key);
+      if (entry) entry.value += p.amount;
+    });
+    return months;
+  })();
+
+  return (
+    <section className="content-panel page-stack">
+      <div className="hero-layout">
+        <section className="hero-copy">
+          <span className="eyebrow">Household Financial</span>
+          <h1>{selectedOwner ? `Financas de ${selectedOwner}` : 'Financas da casa'}</h1>
+          <p className="lead">
+            Selecione um responsavel para ver apenas os gastos dele, ou deixe em "Todos" para a
+            visao completa da casa.
+          </p>
+
+          <OwnerPins ownerNames={ownerNames} selectedOwner={selectedOwner} onSelectOwner={setSelectedOwner} />
+
+          <div className="highlights-grid">
+            {dynamicHighlights.map((item) => (
+              <article key={item.label} className="metric-card">
+                <strong>{item.value}</strong>
+                <span>{item.label}</span>
+              </article>
+            ))}
           </div>
-          <span className="status-pill">+12% previsibilidade</span>
-        </div>
+        </section>
 
-        <div className="budget-ring">
-          <div>
-            <span>Saldo disponivel</span>
-            <strong>R$ 1.940</strong>
-          </div>
-        </div>
-
-        <div className="category-list">
-          {categories.map((category, index) => (
-            <div key={category} className="category-row">
-              <div>
-                <span>{category}</span>
-                <small>Prioridade {index + 1}</small>
-              </div>
-              <strong>{[82, 67, 54, 38][index]}%</strong>
+        <aside className="dashboard-card">
+          <div className="dashboard-card__top">
+            <div>
+              <p className="section-label">Top categorias · {formatMonthLabel(nextMonthKey)}</p>
+              <h2>Maiores gastos</h2>
             </div>
-          ))}
-        </div>
-      </aside>
-    </main>
+            {!isLoading && byCategory.length > 0 && (
+              <span className="status-pill">{byCategory.length} categorias</span>
+            )}
+          </div>
+
+          {isLoading ? (
+            <p className="card-copy home-loading-copy">Carregando...</p>
+          ) : byCategory.length === 0 ? (
+            <p className="card-copy home-loading-copy">Nenhum lancamento em {formatMonthLabel(nextMonthKey)}.</p>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie
+                    data={byCategory}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={82}
+                    innerRadius={44}
+                    paddingAngle={2}
+                  >
+                    {byCategory.map((_, i) => (
+                      <Cell key={i} fill={DASH_COLORS[i % DASH_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value) => [formatCurrency(value), 'Total']}
+                    contentStyle={TOOLTIP_STYLE}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+
+              <div className="category-list">
+                {byCategory.map((cat, i) => (
+                  <div key={cat.name} className="category-row">
+                    <span className="category-row__name">{cat.name}</span>
+                    <div className="category-bar-wrap">
+                      <div
+                        className="category-bar"
+                        style={{
+                          width: `${Math.round((cat.value / totalForPie) * 100)}%`,
+                          background: DASH_COLORS[i % DASH_COLORS.length],
+                        }}
+                      />
+                    </div>
+                    <strong>{formatCurrency(cat.value)}</strong>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </aside>
+      </div>
+
+      {!isLoading && (
+        <article className="content-card">
+          <span className="section-label">Projecao Mensal</span>
+          <h2>Gastos por mes de referencia</h2>
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={byMonth} margin={{ top: 8, right: 24, bottom: 8, left: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(20,33,61,0.08)" vertical={false} />
+              <XAxis
+                dataKey="month"
+                tick={{ fill: 'rgba(20,33,61,0.6)', fontSize: 12 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`}
+                tick={{ fill: 'rgba(20,33,61,0.6)', fontSize: 12 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip
+                formatter={(value) => [formatCurrency(value), 'Total']}
+                contentStyle={TOOLTIP_STYLE}
+              />
+              <Bar dataKey="value" fill="#386641" radius={[8, 8, 0, 0]} maxBarSize={52} />
+            </BarChart>
+          </ResponsiveContainer>
+        </article>
+      )}
+
+      {!isLoading && recentPayments.length > 0 && (
+        <article className="content-card">
+          <span className="section-label">Ultimos lancamentos</span>
+          <h2>Pagamentos recentes</h2>
+          <div className="table-wrap table-wrap--database" style={{ marginTop: '20px' }}>
+            <table className="data-table data-table--dark">
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Responsavel</th>
+                  <th>Categoria</th>
+                  <th>Descricao</th>
+                  <th>Valor</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentPayments.map((payment, i) => (
+                  <tr key={payment.id ?? i}>
+                    <td>{payment['payment-date'] ?? '-'}</td>
+                    <td>{payment.owner?.name ?? '-'}</td>
+                    <td>{payment.category?.name ?? '-'}</td>
+                    <td>{payment.description ?? '-'}</td>
+                    <td>{formatCurrency(payment.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      )}
+    </section>
   );
 }
 
@@ -104,14 +370,13 @@ function PaymentForm() {
     return `${year}-${String(month).padStart(2, '0')}`;
   };
 
-  const formatCurrency = (value) =>
-    new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-    }).format(value);
+  const getTodayValue = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  };
 
-  const [paymentDate, setPaymentDate] = useState('2026-05-10');
-  const [paymentReferenceMonth, setPaymentReferenceMonth] = useState('2026-05');
+  const [paymentDate, setPaymentDate] = useState(getTodayValue);
+  const [paymentReferenceMonth, setPaymentReferenceMonth] = useState(getNextReferenceMonthValue);
   const [paymentMethod, setPaymentMethod] = useState('credit-card');
   const [cardId, setCardId] = useState('');
   const [isInstallments, setIsInstallments] = useState(false);
@@ -711,48 +976,610 @@ function CadastroPage() {
   );
 }
 
+const DASH_COLORS = [
+  '#386641', '#ffd166', '#2ec4b6', '#e76f51', '#264653',
+  '#a8dadc', '#457b9d', '#e9c46a', '#f4a261', '#e63946',
+];
+const CARD_COLORS = ['#14213d', '#386641', '#ffd166'];
+const MONTH_NAMES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+const MONTHLY_SPENDING_GOAL = 20000;
+
+const TOOLTIP_STYLE = {
+  background: 'rgba(255,255,255,0.96)',
+  border: '1px solid rgba(20,33,61,0.12)',
+  borderRadius: '14px',
+  boxShadow: '0 12px 30px rgba(20,33,61,0.12)',
+  fontFamily: 'inherit',
+};
+
+function formatMonthLabel(key) {
+  const [year, month] = key.split('-');
+  return `${MONTH_NAMES[Number(month) - 1]}/${String(year).slice(2)}`;
+}
+
 function DashboardsPage() {
+  const [payments, setPayments] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [dashError, setDashError] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState('');
+  const [selectedOwner, setSelectedOwner] = useState(null);
+
+  useEffect(() => {
+    async function load() {
+      setIsLoading(true);
+      setDashError('');
+      try {
+        const res = await fetch('http://localhost:3000/payment');
+        if (!res.ok) throw new Error('Nao foi possivel carregar os pagamentos.');
+        const data = await res.json();
+        setPayments(Array.isArray(data.payments) ? data.payments : []);
+      } catch (e) {
+        setDashError(e instanceof Error ? e.message : 'Erro inesperado.');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  const availableMonths = [...new Set(
+    payments
+      .map((p) => (p['reference-date'] ?? '').substring(0, 7))
+      .filter((k) => k.length === 7),
+  )].sort();
+
+  const ownerNames = [...new Set(payments.map((p) => p.owner?.name ?? 'Desconhecido'))].sort();
+
+  const visiblePayments = selectedMonth
+    ? payments.filter((p) => (p['reference-date'] ?? '').startsWith(selectedMonth))
+    : payments;
+
+  const ownerFilteredPayments = selectedOwner
+    ? visiblePayments.filter((p) => (p.owner?.name ?? 'Desconhecido') === selectedOwner)
+    : visiblePayments;
+
+  const totalAmount = ownerFilteredPayments.reduce((sum, p) => sum + p.amount, 0);
+  const fixedAmount = ownerFilteredPayments.filter((p) => p['is-fixed-expense']).reduce((sum, p) => sum + p.amount, 0);
+  const installmentsAmount = ownerFilteredPayments.filter((p) => p['is-installments']).reduce((sum, p) => sum + p.amount, 0);
+  const variableAmount = ownerFilteredPayments.filter((p) => !p['is-fixed-expense']).reduce((sum, p) => sum + p.amount, 0);
+
+  const categoryTotals = Object.values(
+    ownerFilteredPayments.reduce((acc, p) => {
+      const name = p.category?.name ?? 'Sem categoria';
+      if (!acc[name]) acc[name] = { name, value: 0 };
+      acc[name].value += p.amount;
+      return acc;
+    }, {}),
+  ).sort((a, b) => b.value - a.value);
+
+  const byCategory = categoryTotals.slice(0, 10);
+
+  const byCard = Object.values(
+    ownerFilteredPayments.reduce((acc, p) => {
+      const name = p.card?.name ?? 'Desconhecido';
+      if (!acc[name]) acc[name] = { name, value: 0 };
+      acc[name].value += p.amount;
+      return acc;
+    }, {}),
+  );
+
+  // Projecao mensal filtra por owner se selecionado, mas sempre exibe todos os meses como contexto
+  const byMonthSource = selectedOwner
+    ? payments.filter((p) => (p.owner?.name ?? 'Desconhecido') === selectedOwner)
+    : payments;
+
+  const byMonth = Object.values(
+    byMonthSource.reduce((acc, p) => {
+      const ref = p['reference-date'] ?? '';
+      const key = ref.substring(0, 7);
+      if (key.length < 7) return acc;
+      if (!acc[key]) {
+        acc[key] = { key, month: formatMonthLabel(key), value: 0 };
+      }
+      acc[key].value += p.amount;
+      return acc;
+    }, {}),
+  ).sort((a, b) => a.key.localeCompare(b.key));
+
+  const fixedVsVariable = [
+    { name: 'Fixo', value: parseFloat(fixedAmount.toFixed(2)) },
+    { name: 'Variavel', value: parseFloat(variableAmount.toFixed(2)) },
+  ];
+
+  const installmentsForecast = (() => {
+    const now = new Date();
+    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const map = {};
+    byMonthSource.forEach((p) => {
+      if (!p['is-installments']) return;
+      const refDate = p['reference-date'] ?? '';
+      const refKey = refDate.substring(0, 7);
+      if (refKey.length < 7) return;
+      const quantityCurrent = Number(p['quantity_installments']) || 1;
+      const totalInstallments = Number(p['number-installments']) || 1;
+      const remaining = totalInstallments - quantityCurrent;
+      if (remaining <= 0) return;
+      const [refYear, refMonth] = refKey.split('-').map(Number);
+      for (let i = 1; i <= remaining; i++) {
+        const futureDate = new Date(refYear, refMonth - 1 + i, 1);
+        const futureKey = `${futureDate.getFullYear()}-${String(futureDate.getMonth() + 1).padStart(2, '0')}`;
+        if (futureKey <= currentMonthKey) continue;
+        if (!map[futureKey]) {
+          map[futureKey] = { key: futureKey, month: formatMonthLabel(futureKey), value: 0 };
+        }
+        map[futureKey].value += p.amount;
+      }
+    });
+    return Object.values(map).sort((a, b) => a.key.localeCompare(b.key));
+  })();
+
+  const kpiCards = [
+    { label: 'Total no periodo', value: formatCurrency(totalAmount), color: '#386641' },
+    { label: 'Despesas fixas', value: formatCurrency(fixedAmount), color: '#14213d' },
+    { label: 'Total parcelado', value: formatCurrency(installmentsAmount), color: '#2ec4b6' },
+    { label: 'Gastos variaveis', value: formatCurrency(variableAmount), color: '#e76f51' },
+  ];
+
+  if (isLoading) {
+    return (
+      <section className="content-panel page-stack">
+        <div className="section-heading">
+          <span className="eyebrow">Dashboards</span>
+          <h1>Carregando dados...</h1>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="content-panel page-stack">
       <div className="section-heading">
         <span className="eyebrow">Dashboards</span>
-        <h1>Acompanhe os indicadores mais importantes em tempo real.</h1>
+        <h1>Visao financeira geral</h1>
         <p className="lead compact-lead">
-          Veja rapidamente o que esta acima do planejado, o quanto da renda esta comprometida e quais metas seguem no ritmo certo.
+          Analise seus gastos por categoria, responsavel, cartao e projecao mensal com base nos lancamentos cadastrados.
         </p>
       </div>
 
-      <div className="dashboard-grid">
-        {[
-          ['Comprometimento da renda', '48%', 'Dentro da faixa saudavel'],
-          ['Economia no mes', 'R$ 920', '18% acima da meta'],
-          ['Contas recorrentes', '12 itens', 'Proximo vencimento em 3 dias'],
-        ].map(([title, value, description]) => (
-          <article key={title} className="content-card stat-card">
-            <span className="section-label">Indicador</span>
-            <h2>{title}</h2>
-            <strong>{value}</strong>
-            <p>{description}</p>
+      {dashError ? <p className="form-feedback error">{dashError}</p> : null}
+
+      <OwnerPins ownerNames={ownerNames} selectedOwner={selectedOwner} onSelectOwner={setSelectedOwner} />
+
+      <div className="dash-filter-bar">
+        <label className="dash-filter-label" htmlFor="dash-month-select">Mes de referencia</label>
+        <select
+          id="dash-month-select"
+          className="dash-month-select"
+          value={selectedMonth}
+          onChange={(event) => setSelectedMonth(event.target.value)}
+        >
+          <option value="">Todos os meses</option>
+          {availableMonths.map((key) => (
+            <option key={key} value={key}>
+              {formatMonthLabel(key)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="dash-kpi-grid">
+        {kpiCards.map((card) => (
+          <article key={card.label} className="content-card dash-kpi-card">
+            <span className="dash-kpi-value" style={{ color: card.color }}>{card.value}</span>
+            <span className="dash-kpi-label">{card.label}</span>
           </article>
         ))}
       </div>
 
-      <article className="content-card timeline-card">
-        <div className="dashboard-card__top">
-          <div>
-            <p className="section-label">Leitura semanal</p>
-            <h2>Tendencia dos ultimos dias</h2>
+      <article className="content-card">
+        <span className="section-label">Top Categorias</span>
+        <h2>Maiores gastos por categoria</h2>
+        <ResponsiveContainer width="100%" height={340}>
+          <PieChart>
+            <Pie
+              data={byCategory}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="46%"
+              outerRadius={120}
+              innerRadius={52}
+              paddingAngle={2}
+              label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+              labelLine={{ stroke: 'rgba(20,33,61,0.3)' }}
+            >
+              {byCategory.map((_, i) => (
+                <Cell key={i} fill={DASH_COLORS[i % DASH_COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip
+              formatter={(value) => [formatCurrency(value), 'Total']}
+              contentStyle={TOOLTIP_STYLE}
+            />
+            <Legend />
+          </PieChart>
+        </ResponsiveContainer>
+      </article>
+
+      <article className="content-card">
+        <span className="section-label">Projecao Mensal</span>
+        <h2>Total por mes de referencia da fatura</h2>
+        <p className="card-copy">
+          {selectedMonth
+            ? `Mes selecionado destacado. Grafico exibe todos os meses como contexto.`
+            : 'Distribuicao dos lancamentos ao longo dos meses de competencia.'}
+        </p>
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart data={byMonth} margin={{ top: 8, right: 24, bottom: 8, left: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(20,33,61,0.08)" vertical={false} />
+            <XAxis
+              dataKey="month"
+              tick={{ fill: 'rgba(20,33,61,0.6)', fontSize: 12 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              domain={[0, (dataMax) => Math.max(dataMax, MONTHLY_SPENDING_GOAL) * 1.1]}
+              tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`}
+              tick={{ fill: 'rgba(20,33,61,0.6)', fontSize: 12 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <ReferenceLine
+              y={MONTHLY_SPENDING_GOAL}
+              stroke="#c62828"
+              strokeWidth={2}
+              strokeDasharray="5 5"
+              label={{ value: 'Meta: R$ 20 mil', position: 'insideTopRight', fill: '#c62828', fontSize: 12 }}
+            />
+            <Tooltip
+              formatter={(value) => [formatCurrency(value), 'Total']}
+              contentStyle={TOOLTIP_STYLE}
+            />
+            <Bar dataKey="value" radius={[8, 8, 0, 0]} maxBarSize={52}>
+              {byMonth.map((entry) => (
+                <Cell
+                  key={entry.key}
+                  fill={
+                    !selectedMonth || entry.key === selectedMonth
+                      ? '#386641'
+                      : 'rgba(20,33,61,0.12)'
+                  }
+                />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </article>
+
+      <article className="content-card">
+        <span className="section-label">Resumo de Categorias</span>
+        <h2>Todas as categorias e valor gasto</h2>
+        <p className="card-copy">
+          Totais por categoria considerando os filtros atuais de mes e responsavel.
+        </p>
+        {categoryTotals.length === 0 ? (
+          <p className="card-copy" style={{ marginTop: '12px' }}>Nenhum gasto encontrado para os filtros selecionados.</p>
+        ) : (
+          <div className="table-wrap table-wrap--database" style={{ marginTop: '16px' }}>
+            <table className="data-table data-table--dark">
+              <thead>
+                <tr>
+                  <th>Categoria</th>
+                  <th>Valor gasto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {categoryTotals.map((item) => (
+                  <tr key={item.name}>
+                    <td>{item.name}</td>
+                    <td>{formatCurrency(item.value)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <span className="status-pill">Estavel</span>
+        )}
+      </article>
+
+      <article className="content-card">
+        <span className="section-label">Parcelas Futuras</span>
+        <h2>Projecao de parcelas por mes</h2>
+        <p className="card-copy">
+          Total a pagar de compras parceladas em andamento, mes a mes, com base nas parcelas restantes registradas.
+        </p>
+        {installmentsForecast.length === 0 ? (
+          <p className="card-copy" style={{ marginTop: '12px' }}>Nenhuma parcela futura encontrada.</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={installmentsForecast} margin={{ top: 8, right: 24, bottom: 8, left: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(20,33,61,0.08)" vertical={false} />
+              <XAxis
+                dataKey="month"
+                tick={{ fill: 'rgba(20,33,61,0.6)', fontSize: 12 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tickFormatter={(v) => `R$${(v / 1000).toFixed(1)}k`}
+                tick={{ fill: 'rgba(20,33,61,0.6)', fontSize: 12 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip
+                formatter={(value) => [formatCurrency(value), 'Total parcelado']}
+                contentStyle={TOOLTIP_STYLE}
+              />
+              <Bar dataKey="value" fill="#2ec4b6" radius={[8, 8, 0, 0]} maxBarSize={52} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </article>
+
+      <div className="dash-charts-grid">
+        <article className="content-card">
+          <span className="section-label">Cartao</span>
+          <h2>Gastos por cartao</h2>
+          <ResponsiveContainer width="100%" height={280}>
+            <PieChart>
+              <Pie
+                data={byCard}
+                dataKey="value"
+                nameKey="name"
+                cx="50%"
+                cy="46%"
+                outerRadius={105}
+                innerRadius={52}
+                paddingAngle={3}
+                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                labelLine={{ stroke: 'rgba(20,33,61,0.3)' }}
+              >
+                {byCard.map((_, i) => (
+                  <Cell key={i} fill={CARD_COLORS[i % CARD_COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip
+                formatter={(value) => [formatCurrency(value), 'Total']}
+                contentStyle={TOOLTIP_STYLE}
+              />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </article>
+
+        <article className="content-card">
+          <span className="section-label">Parcelamentos</span>
+          <h2>Compras parceladas</h2>
+          {(() => {
+            const installmentPayments = ownerFilteredPayments
+              .filter((p) => p['is-installments'])
+              .sort((leftPayment, rightPayment) => rightPayment.amount - leftPayment.amount);
+            if (installmentPayments.length === 0) {
+              return <p className="card-copy" style={{ marginTop: '12px' }}>Nenhuma compra parcelada no periodo selecionado.</p>;
+            }
+            return (
+              <div className="table-wrap" style={{ marginTop: '16px' }}>
+                <table className="data-table data-table--dark">
+                  <thead>
+                    <tr>
+                      <th>Categoria</th>
+                      <th>Parcela</th>
+                      <th>Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {installmentPayments.map((p, i) => {
+                      const current = p.quantity_installments ?? '-';
+                      const total = p['number-installments'] ?? '-';
+                      return (
+                        <tr key={i}>
+                          <td>{p.category?.name ?? '-'}</td>
+                          <td>{`${current}/${total}`}</td>
+                          <td>{formatCurrency(p.amount)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+        </article>
+      </div>
+
+    </section>
+  );
+}
+
+function DatabasePage() {
+  const [payments, setPayments] = useState([]);
+  const [isLoadingPayments, setIsLoadingPayments] = useState(true);
+  const [databaseFeedback, setDatabaseFeedback] = useState({ type: '', message: '' });
+  const [sortConfig, setSortConfig] = useState({ key: 'description', direction: 'asc' });
+  const [filters, setFilters] = useState(() =>
+    databaseColumns.reduce((accumulator, column) => {
+      accumulator[column.key] = '';
+      return accumulator;
+    }, {}),
+  );
+
+  const loadPayments = async () => {
+    setIsLoadingPayments(true);
+
+    try {
+      const response = await fetch('http://localhost:3000/payment');
+
+      if (!response.ok) {
+        throw new Error('Nao foi possivel carregar os pagamentos do database.');
+      }
+
+      const data = await response.json();
+      setPayments(Array.isArray(data.payments) ? data.payments : []);
+      setDatabaseFeedback({ type: '', message: '' });
+    } catch (error) {
+      setPayments([]);
+      setDatabaseFeedback({
+        type: 'error',
+        message:
+          error instanceof Error ? error.message : 'Erro inesperado ao carregar o database.',
+      });
+    } finally {
+      setIsLoadingPayments(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPayments();
+  }, []);
+
+  const handleFilterChange = (columnKey, value) => {
+    setFilters((currentFilters) => ({
+      ...currentFilters,
+      [columnKey]: value,
+    }));
+  };
+
+  const handleSort = (columnKey) => {
+    setSortConfig((currentConfig) => {
+      if (currentConfig.key === columnKey) {
+        return {
+          key: columnKey,
+          direction: currentConfig.direction === 'asc' ? 'desc' : 'asc',
+        };
+      }
+
+      return { key: columnKey, direction: 'asc' };
+    });
+  };
+
+  const filteredPayments = payments.filter((payment) =>
+    databaseColumns.every((column) => matchesPaymentFilter(payment, column, filters[column.key])),
+  );
+
+  const sortedPayments = [...filteredPayments].sort((leftPayment, rightPayment) => {
+    const activeColumn = databaseColumns.find((column) => column.key === sortConfig.key);
+
+    if (!activeColumn) {
+      return 0;
+    }
+
+    const leftValue = getPaymentComparableValue(leftPayment, activeColumn);
+    const rightValue = getPaymentComparableValue(rightPayment, activeColumn);
+
+    if (leftValue === rightValue) {
+      return 0;
+    }
+
+    if (leftValue > rightValue) {
+      return sortConfig.direction === 'asc' ? 1 : -1;
+    }
+
+    return sortConfig.direction === 'asc' ? -1 : 1;
+  });
+
+  return (
+    <section className="content-panel page-stack">
+      <div className="section-heading">
+        <span className="eyebrow">Database</span>
+        <h1>Consulte todos os pagamentos em uma tabela unica.</h1>
+        <p className="lead compact-lead">
+          Use os filtros por coluna e clique no cabecalho para ordenar qualquer campo retornado pela API.
+        </p>
+      </div>
+
+      <article className="content-card database-card">
+        <div className="card-header-row">
+          <div>
+            <span className="section-label">GET /payment</span>
+            <h2>Base completa de pagamentos</h2>
+          </div>
+          <button type="button" className="ghost-btn" onClick={loadPayments}>
+            Atualizar
+          </button>
         </div>
 
-        <div className="trend-bars" aria-label="Resumo visual dos gastos da semana">
-          {[42, 58, 36, 74, 64, 48, 52].map((height, index) => (
-            <div key={height} className="trend-bar-group">
-              <div className="trend-bar" style={{ height: `${height * 2}px` }} />
-              <span>{['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'][index]}</span>
-            </div>
-          ))}
+        <p className="card-copy">
+          {filteredPayments.length} de {payments.length} pagamentos exibidos.
+        </p>
+
+        {databaseFeedback.message ? (
+          <p className={databaseFeedback.type === 'success' ? 'form-feedback success' : 'form-feedback error'}>
+            {databaseFeedback.message}
+          </p>
+        ) : null}
+
+        <div className="table-wrap table-wrap--database">
+          <table className="data-table data-table--dark">
+            <thead>
+              <tr>
+                {databaseColumns.map((column) => {
+                  const isActiveSort = sortConfig.key === column.key;
+                  const directionLabel = isActiveSort && sortConfig.direction === 'asc' ? '↑' : '↓';
+
+                  return (
+                    <th key={column.key}>
+                      <button
+                        type="button"
+                        className={isActiveSort ? 'table-sort active' : 'table-sort'}
+                        onClick={() => handleSort(column.key)}
+                      >
+                        <span>{column.label}</span>
+                        <span>{isActiveSort ? directionLabel : '↕'}</span>
+                      </button>
+                    </th>
+                  );
+                })}
+              </tr>
+              <tr className="filter-row">
+                {databaseColumns.map((column) => (
+                  <th key={`${column.key}-filter`}>
+                    {column.type === 'boolean' ? (
+                      <select
+                        className="table-filter"
+                        value={filters[column.key]}
+                        onChange={(event) => handleFilterChange(column.key, event.target.value)}
+                      >
+                        <option value="">Todos</option>
+                        <option value="true">Sim</option>
+                        <option value="false">Nao</option>
+                      </select>
+                    ) : (
+                      <input
+                        className="table-filter"
+                        type={column.type === 'date' ? 'date' : column.type === 'number' ? 'number' : 'text'}
+                        placeholder={`Filtrar ${column.label}`}
+                        value={filters[column.key]}
+                        onChange={(event) => handleFilterChange(column.key, event.target.value)}
+                      />
+                    )}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {isLoadingPayments ? (
+                <tr>
+                  <td colSpan={databaseColumns.length}>Carregando pagamentos...</td>
+                </tr>
+              ) : null}
+
+              {!isLoadingPayments && sortedPayments.length === 0 ? (
+                <tr>
+                  <td colSpan={databaseColumns.length}>Nenhum pagamento encontrado com os filtros atuais.</td>
+                </tr>
+              ) : null}
+
+              {!isLoadingPayments
+                ? sortedPayments.map((payment) => (
+                    <tr key={payment.id}>
+                      {databaseColumns.map((column) => (
+                        <td key={`${payment.id}-${column.key}`}>{formatPaymentCell(payment, column)}</td>
+                      ))}
+                    </tr>
+                  ))
+                : null}
+            </tbody>
+          </table>
         </div>
       </article>
     </section>
@@ -769,6 +1596,10 @@ function App() {
 
     if (activePage === 'Dashboards') {
       return <DashboardsPage />;
+    }
+
+    if (activePage === 'Database') {
+      return <DatabasePage />;
     }
 
     return <HomePage />;
