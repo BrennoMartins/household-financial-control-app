@@ -593,6 +593,35 @@ button {
   line-height: 1.1;
 }
 
+.owner-pins {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 24px 0;
+}
+
+.owner-pin {
+  padding: 10px 18px;
+  border: 1px solid rgba(56, 102, 65, 0.35);
+  border-radius: 999px;
+  background: transparent;
+  color: #386641;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.owner-pin:hover {
+  background: rgba(56, 102, 65, 0.1);
+}
+
+.owner-pin--active,
+.owner-pin--active:hover {
+  background: #386641;
+  color: #f7ffe8;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
